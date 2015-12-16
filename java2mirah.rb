@@ -1,6 +1,33 @@
+require 'FileUtils'
+
 class JavaToMirah
+Test = <<-FOO
+package org.foo.bar;
+
+import org.bar.Foo;
+
+public class SomeClass extends Foo {
+  private static final int PAD_BOTTOM = 2;
+  private static final String SPLITTER = " ";
+  
+  public int avar;
+  public int bvar;
+  public int cvar;
+  
+  public SomeClass(int var, String var2) {
+    this.avar = var; // Test 1
+    // Test 2
+  }
+  
+  public int getVar() {
+    return avar;
+  }
+}
+FOO
+
   #Detectors
   IsOneLineDef = /def .+?; end/
+  IsPackageLine = /^package (.+?);/
   
   PPP = 'private|public|protected'
   AllPrims = 'byte|short|int|long|char|float|double|boolean'
@@ -64,31 +91,37 @@ class JavaToMirah
   DeclareFixes = [DeclareFix, DeclareArrayFix, PrimDeclareFix, NewDeclareFix, GenericsDeclareFix]
   
   InsideLst = ['(', ')', '{', '}', '[', ']']
-  InsideKey = {'(' => :p1, ')' => :p1, '{' => :p2, '}' => :p2, '[' => :p3, ']' => :p3}
-  InsideRev = {p1: ['(', ')'], p2: ['{', '}'], p3: ['[', ']']}
+  InsideKey = {'(' => :parenthesis, ')' => :parenthesis, 
+               '{' => :braces, '}' => :braces, 
+               '[' => :brackets, ']' => :brackets}
+  InsideRev = {parenthesis: ['(', ')'], braces: ['{', '}'], brackets: ['[', ']']}
   
-  @@klass = nil
-  @@deklare = {}
-  @@deklared = []
-  @@konstants = []
-  @@inComment = false
-  @@javaCode = ""
-  @@mirahCode = ""
+  def self.init()
+    @@klass = nil
+    @@pkg = nil
+    @@deklare = {}
+    @@deklared = []
+    @@konstants = []
+    @@inComment = false
+    @@javaCode = ""
+    @@mirahCode = ""
+  end
   
   def self.import(code)
+    init()
     @@top = JavaToMirah.new()
     tmp = @@top
     cmmnt = false
     quotes = ''
     
-    lc = ''
+    lc = '' #Last Character
     
-    inside = {p1: false, p2: false, p3: false}
+    inside = {parenthesis: false, braces: false, brackets: false}
     
     code.each_char do |c|
       cmmnt = true  if ((lc + c) == '/*')
       cmmnt = false if ((lc + c) == '*/')
-      if InsideLst.include?(c)
+      if InsideLst.include?(c) # I thought I'd keep track of parenthesis, braces, and brackets, just in case.
         inside[InsideKey[c]] = true  if (c == InsideRev[InsideKey[c]][0])
         inside[InsideKey[c]] = false if (c == InsideRev[InsideKey[c]][1])
       end
@@ -96,9 +129,11 @@ class JavaToMirah
         tmp = tmp.addChild
       elsif ((c == '}') and !cmmnt)
         tmp.exitBlock
-      elsif ((c == "\n") and !inside[:p1])
+      elsif ((c == "\n") and !(cmmnt or inside[:parenthesis])) # Even though I only actually use the parenthesis check.
         tmp.cleanLine()
         (tmp = tmp.newLine) unless tmp.lineBlank?
+      elsif cmmnt
+        tmp.addCharComment(c) unless c.nil?
       else
         tmp.addChar(c) unless c.nil?
       end
@@ -110,11 +145,55 @@ class JavaToMirah
     @@top.mirahToBuffer
   end
   
+  def self.procARGV(argv)
+    if argv.size > 0
+      puts argv[0]
+      puts ["-a", "--all"].include?(argv[0])
+      if ["-a", "--all"].include?(argv[0])
+        puts "All Java files will be processed."
+        JavaToMirah.allJavaToMirahFiles()
+      else
+        puts "Processing File: #{argv[0]}\n\n"
+        begin
+          code = File.open("in-java/" + argv[0] + '.java') { |f| f.read }
+        rescue
+          puts "Failure to read file: #{argv[0]}"
+          code = Test
+        end
+        JavaToMirah.import(code)
+        JavaToMirah.print
+        JavaToMirah.mirahToFile
+      end
+    else
+      puts "Usage:\n  >java2mirah.rb [-a|--all] # read all .java files in 'in-java/' and create .mirah files.\n  >java2mirah.rb filenameNoExt\n\n"
+      JavaToMirah.import(Test)
+      JavaToMirah.print
+    end
+  end
+  
   def self.print
     puts "/* Java */"
     puts @@javaCode
     puts "\n\n/* Mirah */"
-    puts @@mirahCode
+    puts @@mirahCode + "\n\n"
+  end
+  
+  def self.mirahToFile(createPkgDirs = true)
+    return if (@@klass.nil? or @@klass.strip.empty?)
+    return if @@mirahCode.empty?
+    folder = 'out-mirah/'
+    @@pkg.split('.').each {|fldr| folder += fldr + '/'} if createPkgDirs
+    FileUtils.mkpath(folder)
+    filename = folder + @@klass + '.mirah'
+    File.open(filename, 'w') {|f| f.write(@@mirahCode) } rescue puts "Failed to write mirah file:\n  #{filename}"
+  end
+  
+  def self.allJavaToMirahFiles(createPkgDirs = true)
+    Dir["in-java/**.java"].each do |filename|
+      JavaToMirah.import(File.open(filename) { |f| f.read })
+      JavaToMirah.mirahToFile(createPkgDirs)
+      JavaToMirah.print
+    end
   end
   
   def self.setClass(title)
@@ -150,6 +229,7 @@ class JavaToMirah
     @nxt = nxtLine
     @child = chil
     @initializer = false
+    @packageLine = false
   end
   
   def insert(lin = '', mlin = '', cmnt = '')
@@ -191,6 +271,10 @@ class JavaToMirah
     @parent
   end
   
+  def packageLine?()
+    @packageLine
+  end
+  
   def topLevel?()
     @parent.nil?
   end
@@ -210,6 +294,12 @@ class JavaToMirah
     #puts c
     #puts @line
     @line += c
+  end
+  
+  def addCharComment(c)
+    #puts c
+    #puts @line
+    @comment += c
   end
   
   def addChild()
@@ -293,6 +383,9 @@ class JavaToMirah
         mtch = @mline.match(/(.*?)\/\/(.*?)$/)
         @mline = mtch[1]
         @comment = mtch[2]
+      end
+      if (topLevel? and (@mline =~ IsPackageLine))
+        @@pkg = @mline.match(IsPackageLine)[1]
       end
       if @mline =~ FinalFix[0]
         kon = @mline.match(FinalFix[0])[3]
@@ -397,27 +490,7 @@ class JavaToMirah
   end
 end
 
-test = <<-FOO
-public class SomeClass {
-  private static final int PAD_BOTTOM = 2;
-  private static final String SPLITTER = " ";
-  
-  public int avar;
-  public int bvar;
-  public int cvar;
-  
-  public SomeClass(int var, String var2) {
-    this.avar = var; // Test 1
-    // Test 2
-  }
-  
-  public int getVar() {
-    return avar;
-  }
-}
-FOO
+FileUtils.mkpath('./in-java')
+FileUtils.mkpath('./out-mirah')
 
-code = ((ARGV.size > 0) ? File.open("in-java\\" + ARGV[0] + '.java') { |f| f.read } : test)
-
-JavaToMirah.import(code)
-JavaToMirah.print
+JavaToMirah.procARGV(ARGV)
