@@ -63,11 +63,59 @@ class JavaToMirah
   MultiPassFixes = [KlsVarFix, KlassNewFix, FloatFix, DoubleFix, CastFix, LocalVarFix, LocalNewArrayFix, LocalArrayFix, ThisFix, NullToNilFix]
   DeclareFixes = [DeclareFix, DeclareArrayFix, PrimDeclareFix, NewDeclareFix, GenericsDeclareFix]
   
+  InsideLst = ['(', ')', '{', '}', '[', ']']
+  InsideKey = {'(' => :p1, ')' => :p1, '{' => :p2, '}' => :p2, '[' => :p3, ']' => :p3}
+  InsideRev = {p1: ['(', ')'], p2: ['{', '}'], p3: ['[', ']']}
+  
   @@klass = nil
   @@deklare = {}
   @@deklared = []
   @@konstants = []
   @@inComment = false
+  @@javaCode = ""
+  @@mirahCode = ""
+  
+  def self.import(code)
+    @@top = JavaToMirah.new()
+    tmp = @@top
+    cmmnt = false
+    quotes = ''
+    
+    lc = ''
+    
+    inside = {p1: false, p2: false, p3: false}
+    
+    code.each_char do |c|
+      cmmnt = true  if ((lc + c) == '/*')
+      cmmnt = false if ((lc + c) == '*/')
+      if InsideLst.include?(c)
+        inside[InsideKey[c]] = true  if (c == InsideRev[InsideKey[c]][0])
+        inside[InsideKey[c]] = false if (c == InsideRev[InsideKey[c]][1])
+      end
+      if    ((c == '{') and !cmmnt)
+        tmp = tmp.addChild
+      elsif ((c == '}') and !cmmnt)
+        tmp.exitBlock
+      elsif ((c == "\n") and !inside[:p1])
+        tmp.cleanLine()
+        (tmp = tmp.newLine) unless tmp.lineBlank?
+      else
+        tmp.addChar(c) unless c.nil?
+      end
+      lc = c
+    end
+    
+    @@top.javaToBuffer
+    @@top.toMirah
+    @@top.mirahToBuffer
+  end
+  
+  def self.print
+    puts "/* Java */"
+    puts @@javaCode
+    puts "\n\n/* Mirah */"
+    puts @@mirahCode
+  end
   
   def self.setClass(title)
     @@klass = title
@@ -75,6 +123,22 @@ class JavaToMirah
   
   def self.addObjVar(var, info)
     @@deklare[var] = info
+  end
+  
+  def self.clearJ
+    @@javaCode = ""
+  end
+  
+  def self.clearM
+    @@mirahCode = ""
+  end
+  
+  def self.addJ(line, nl = true)
+    @@javaCode += (nl ? "\n" : "") + line
+  end
+  
+  def self.addM(line, nl = true)
+    @@mirahCode += (nl ? "\n" : "") + line
   end
   
   def initialize(par = nil, prvLine = nil, nxtLine = nil, chil = nil, lin = '', mlin = '', cmnt = '')
@@ -192,25 +256,25 @@ class JavaToMirah
     @line = @line.strip.gsub(/\s+/, " ")
   end
   
-  def printAll(tabs = 0)
+  def javaToBuffer(tabs = 0)
     cleanLine()
-    puts ("  " * tabs) + @line
-    @child.printAll(tabs + 1) unless @child.nil?
-    @nxt.printAll(tabs) unless @nxt.nil?
+    JavaToMirah.addJ(("  " * tabs) + @line)
+    @child.javaToBuffer(tabs + 1) unless @child.nil?
+    @nxt.javaToBuffer(tabs) unless @nxt.nil?
   end
   
-  def printAllMirah(tabs = 0)
+  def mirahToBuffer(tabs = 0)
     cleanLine()
     indent = "  " * tabs
     out = @mline.empty? ? "" : @mline
     (out = (out + ' #' + @comment).lstrip) unless @comment.empty?
     out = indent + out
-    puts out unless out.strip.empty?
+    JavaToMirah.addM(out) unless out.strip.empty?
     if hasChild?
-      @child.printAllMirah(tabs + 1)
-      puts indent + "end" + (klassLevel? ? "\n" + indent : '') if useEnd?
+      @child.mirahToBuffer(tabs + 1)
+      JavaToMirah.addM(indent + "end" + (klassLevel? ? "\n" + indent : '')) if useEnd?
     end
-    @nxt.printAllMirah(tabs) unless @nxt.nil?
+    @nxt.mirahToBuffer(tabs) unless @nxt.nil?
   end
   
   def toMirah()
@@ -355,37 +419,5 @@ FOO
 
 code = ((ARGV.size > 0) ? File.open("in-java\\" + ARGV[0] + '.java') { |f| f.read } : test)
 
-out = JavaToMirah.new()
-tmp = out
-cmmnt = false
-quotes = ''
-
-lc = ''
-insideLst = ['(', ')', '{', '}', '[', ']']
-insideKey = {'(' => :p1, ')' => :p1, '{' => :p2, '}' => :p2, '[' => :p3, ']' => :p3}
-insideRev = {p1: ['(', ')'], p2: ['{', '}'], p3: ['[', ']']}
-inside = {p1: false, p2: false, p3: false}
-
-code.each_char do |c|
-  cmmnt = true  if ((lc + c) == '/*')
-  cmmnt = false if ((lc + c) == '*/')
-  if insideLst.include?(c)
-    inside[insideKey[c]] = true  if (c == insideRev[insideKey[c]][0])
-    inside[insideKey[c]] = false if (c == insideRev[insideKey[c]][1])
-  end
-  if    ((c == '{') and !cmmnt)
-    tmp = tmp.addChild
-  elsif ((c == '}') and !cmmnt)
-    tmp.exitBlock
-  elsif ((c == "\n") and !inside[:p1])
-    tmp.cleanLine()
-    (tmp = tmp.newLine) unless tmp.lineBlank?
-  else
-    tmp.addChar(c) unless c.nil?
-  end
-  lc = c
-end
-
-out.printAll
-out.toMirah
-out.printAllMirah
+JavaToMirah.import(code)
+JavaToMirah.print
