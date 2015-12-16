@@ -20,6 +20,11 @@ Creates .mirah files in package based subfolders within __'out-mirah'__ subfolde
 
 Planned Features
 ================
-The plan is to read all files in the __'in-java'__ folder and create Mirah versions in the __'out-mirah'__ folder.
+Implement *extends* and *implements* for classes.
 
-Refactoring.  I want a script to be able to change a mirah class's package and/or class name, move it to the appropriate folder/file, and change all references throughout a project to reflect said changes.  This should be an easier task than what I've already written.  Just have to bother.
+Refactoring.
+
+I want a script to be able to change a mirah class's package and/or class name, move it to the appropriate folder/file, and change all references throughout a project to reflect said changes.
+This should be an easier task than what I've already written.  Just have to bother.
+
+Hard part: may need a GUI to simplify refactoring.
