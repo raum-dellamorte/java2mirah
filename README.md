@@ -24,7 +24,7 @@ Implement *extends* and *implements* for classes.
 * current behaviour ignores anything after the class name.
 
 Fix issue with translation effecting literal strings.
-* As of now, if a word in a literal string is the same as an instance variable (field), it will get an @ placed in front of it as if it were a reference to that variable instead of just a work in a literal string.
+* As of now, if a word in a literal string is the same as an instance variable (field), it will get an @ placed in front of it as if it were a reference to that variable instead of just a word in a literal string.
 
 Add command line options for tasks like:
 * translate multiple specific files without doing all.
