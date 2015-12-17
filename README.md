@@ -5,7 +5,7 @@ A ruby script to translate Java source to Mirah source.
 
 Use
 ===
-Run as __>java2mirah.rb__ with no arguments to create subfolders __'in-java'__ and __'out-mirah'__ if they don't exist and to print the example.
+Run as __>java2mirah.rb__ with no arguments to create subfolders __'in-java'__ and __'out-mirah'__ if they don't exist and to print the usage and the example translation to the screen.
 
 Run as __>java2mirah.rb [-a|--all]__ to create .mirah files for all .java files found in the __'in-java'__ folder.
 
