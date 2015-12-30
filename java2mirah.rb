@@ -111,8 +111,11 @@ FOO
     init()
     @@top = JavaToMirah.new()
     tmp = @@top
+    ltmp = tmp
     cmmnt = false
-    quotes = ''
+    lcmmnt = false
+    quote = false
+    waitForNewLine = false
     
     lc = '' #Last Character
     
@@ -121,23 +124,41 @@ FOO
     code.each_char do |c|
       cmmnt = true  if ((lc + c) == '/*')
       cmmnt = false if ((lc + c) == '*/')
+      quote = !quote if (c == '"')
+      cqtst = (cmmnt or quote)
       if InsideLst.include?(c) # I thought I'd keep track of parenthesis, braces, and brackets, just in case.
         inside[InsideKey[c]] = true  if (c == InsideRev[InsideKey[c]][0])
         inside[InsideKey[c]] = false if (c == InsideRev[InsideKey[c]][1])
       end
-      if    ((c == '{') and !cmmnt)
+      if    ((c == '{') and !cqtst)
         tmp = tmp.addChild
-      elsif ((c == '}') and !cmmnt)
+      elsif ((c == '}') and !cqtst)
         tmp.exitBlock
-      elsif ((c == "\n") and !(cmmnt or inside[:parenthesis])) # Even though I only actually use the parenthesis check.
+      elsif ((c == ';') and !(cqtst or inside[:parenthesis])) # Even though I only actually use the parenthesis check.
+        waitForNewLine = true
+        tmp.addChar(c)
         tmp.cleanLine()
         (tmp = tmp.newLine) unless tmp.lineBlank?
+      elsif (lcmmnt and !cmmnt)
+        tmp = tmp.newLine
       elsif cmmnt
-        tmp.addCharComment(c) unless c.nil?
+        if ((lc + c) == '/*')
+          tmp.rmChar
+        else
+          tmp.addCharComment(c) unless c.nil?
+        end
+      elsif waitForNewLine
+        if (c == "\n")
+          waitForNewLine = false
+        else
+          ltmp.addChar(c) unless c.nil?
+        end
       else
         tmp.addChar(c) unless c.nil?
       end
+      lcmmnt = cmmnt
       lc = c
+      ltmp = tmp
     end
     
     @@top.javaToBuffer
@@ -302,6 +323,10 @@ FOO
     @comment += c
   end
   
+  def rmChar()
+    @line = @line[0..-2] unless @line.empty?
+  end
+  
   def addChild()
     @child = JavaToMirah.new(self)
     return @child
@@ -357,7 +382,13 @@ FOO
     cleanLine()
     indent = "  " * tabs
     out = @mline.empty? ? "" : @mline
-    (out = (out + ' #' + @comment).lstrip) unless @comment.empty?
+    unless @comment.empty?
+      if (@comment.split(/\n/).size > 1)
+        (out = (out + '/*' + @comment + '*/').lstrip)
+      else
+        (out = (out + ' #' + @comment).lstrip)
+      end
+    end
     out = indent + out
     JavaToMirah.addM(out) unless out.strip.empty?
     if hasChild?
@@ -450,6 +481,7 @@ FOO
         @mline = @mline.sub(varfind, "\\1#{var}()\\2")
       end
     end
+    oneLinersFix()
     @mline.sub!(/;[\s]*$/, '')
     oneLineIfFix()
   end
@@ -469,6 +501,24 @@ FOO
   def forFixer(str)
     # placeholder for more advanced for loops
     return str
+  end
+  
+  def oneLinersFix()
+    return unless @mline =~ /^(if|while) \x28.+\x29 .+?;/
+    mrk = 0
+    lvl = 0
+    div = 0
+    @mline.each_char do |c|
+      lvl += 1 if c == '('
+      if ((c == ')') and (lvl == 1))
+        div = mrk
+        break
+      elsif (c == ')')
+        lvl -= 1
+      end
+      mrk += 1
+    end
+    @mline = (@mline[(div + 1)..-2] + ' ' + @mline[0..(div)]).lstrip
   end
   
   def oneLineIfFix()
