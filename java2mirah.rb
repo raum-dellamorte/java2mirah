@@ -8,15 +8,22 @@ import org.bar.Foo;
 
 public class SomeClass extends Foo {
   private static final int PAD_BOTTOM = 2;
-  private static final String SPLITTER = " ";
+  private final static String SPLITTER = " ";
   
   public int avar;
   public int bvar;
   public int cvar;
+
+  public float x, y, z;
+
+  public static void init() {
+    
+  }
   
   public SomeClass(int var, String var2) {
-    this.avar = var; // Test 1
-    // Test 2
+    // Comment Test 1
+    this.avar = var; // Comment Test 2
+    // Comment Test 3
   }
   
   public int getVar() {
@@ -37,7 +44,7 @@ FOO
   NonVoidTypes = AllPrims + '|' + Klass
   ReturnTypes = 'void|' + NonVoidTypes
   #
-  FinalFix = [/(#{PPP}) static final (.+?) (#{Konst}) = (.+?);/, 'def self.\3():\2; \4; end']
+  FinalFix = [/(#{PPP}) (static final|final static) (.+?) (#{Konst}) = (.+?);/, 'def self.\4():\3; \5; end']
   
   #Variable Type
   KlsVarFix = [/(\x28|,|, |\t)([^\x28\x29\<\>\t ,+":!=][^\x28\x29\t ,+":!=]*) ([^\x28\x29\t ",+:!=]+)(\x29|,)/, '\1\3:\2\4']
@@ -112,6 +119,76 @@ FOO
     @@top = JavaToMirah.new()
     tmp = @@top
     ltmp = tmp
+    cmmnt = false
+    lcmmnt = false
+    cmtln = false
+    quote = false
+    waitForNewLine = false
+    
+    lc = '' #Last Character
+    
+    inside = {parenthesis: false, braces: false, brackets: false}
+    
+    code.each_char do |c|
+      cmmnt = true  if ((lc + c) == '/*')
+      cmmnt = false if ((lc + c) == '*/')
+      cmtln = true  if ((lc + c) == '//')
+      cmtln = false if (c == "\n")
+      quote = !quote if (c == '"')
+      cqtst = ((cmmnt or cmtln) or quote)
+      if InsideLst.include?(c) # I thought I'd keep track of parenthesis, braces, and brackets, just in case.
+        inside[InsideKey[c]] = true  if (c == InsideRev[InsideKey[c]][0])
+        inside[InsideKey[c]] = false if (c == InsideRev[InsideKey[c]][1])
+      end
+      (tmp = tmp.newLine; waitForNewLine = false) if (lcmmnt and !(cmmnt or cmtln))
+      #(waitForNewLine = true) if (!lcmmnt and (cmmnt or cmtln))
+      if    ((c == '{') and !cqtst)
+        tmp = tmp.addChild
+      elsif ((c == '}') and !cqtst)
+        tmp.exitBlock
+      elsif ((c == ';') and !(cqtst or inside[:parenthesis])) # Even though I only actually use the parenthesis check.
+        waitForNewLine = true
+        tmp.addChar(';')
+        ltmp = tmp
+      elsif (waitForNewLine and (c == "\n"))
+        waitForNewLine = false
+        ltmp = tmp
+        tmp = tmp.newLine unless tmp.lineWithComment.empty?
+      else
+        ctmp = waitForNewLine ? ltmp : tmp
+        
+        if (cmmnt or cmtln)
+          if (((lc + c) == '/*') or ((lc + c) == '//'))
+            ctmp.rmChar
+          else
+            ctmp.addCharComment(c) unless c.nil?
+          end
+        else
+          ctmp.addChar(c) unless c.nil?
+        end
+      end
+      lcmmnt = (cmmnt or cmtln)
+      lc = c
+      #ltmp = tmp
+    end
+    
+    @@top.javaToBuffer
+    @@top.toMirah
+    @@top.mirahToBuffer
+  end
+  
+  def self.diveImport(code)
+    init()
+    @@top = JavaToMirah.new()
+    @@top.dive(code)
+    @@top.javaToBuffer
+    @@top.toMirah
+    @@top.mirahToBuffer
+  end
+
+  def dive(code)
+    #tmp = @@top
+    #ltmp = tmp
     cmmnt = false
     lcmmnt = false
     quote = false
@@ -263,13 +340,42 @@ FOO
   def line()
     @line
   end
+
+  def lineWithComment()
+    out = @line.empty? ? "" : @line
+    unless @comment.empty?
+      if (@comment.split(/\n/).size > 1)
+        (out = ('/*' + @comment + '*/'))
+      else
+        (out = (out + ' ')) unless out.empty?
+        (out = (out + '// ' + @comment))
+      end
+    end
+    return out
+  end
   
   def mline()
     @mline
   end
+
+  def mlineWithComment()
+    out = @line.empty? ? "" : @line
+    unless @comment.empty?
+      if (@comment.split(/\n/).size > 1)
+        (out = ('/*' + @comment + '*/'))
+      else
+        (out = (out + '#' + @comment))
+      end
+    end
+    return out
+  end
   
   def lineBlank?()
-    @line.strip.gsub(/\s/, "").empty?
+    @line.strip.empty?
+  end
+  
+  def cLineBlank?()
+    @comment.strip.empty?
   end
   
   def prevLine()
@@ -314,12 +420,15 @@ FOO
   def addChar(c)
     #puts c
     #puts @line
+    return if ((c =~ /\s/) and lineBlank?)
+    return if ((c =~ /\s/) and @line[-1] == "\n")
     @line += c
   end
   
   def addCharComment(c)
     #puts c
     #puts @line
+    return if ((c =~ /\s/) and cLineBlank?)
     @comment += c
   end
   
@@ -373,7 +482,17 @@ FOO
   
   def javaToBuffer(tabs = 0)
     cleanLine()
-    JavaToMirah.addJ(("  " * tabs) + @line)
+    indent = "  " * tabs
+    out = @line.empty? ? "" : @line
+    unless @comment.empty?
+      if (@comment.split(/\n/).size > 1)
+        (out = (out + '/*' + @comment + '*/').lstrip)
+      else
+        (out = (out + ' // ' + @comment).lstrip)
+      end
+    end
+    out = indent + out
+    JavaToMirah.addJ(out)
     @child.javaToBuffer(tabs + 1) unless @child.nil?
     @nxt.javaToBuffer(tabs) unless @nxt.nil?
   end
@@ -386,7 +505,7 @@ FOO
       if (@comment.split(/\n/).size > 1)
         (out = (out + '/*' + @comment + '*/').lstrip)
       else
-        (out = (out + ' #' + @comment).lstrip)
+        (out = (out + ' # ' + @comment).lstrip)
       end
     end
     out = indent + out
@@ -482,6 +601,7 @@ FOO
       end
     end
     oneLinersFix()
+    @mline.sub!(/:([A-Za-z][A-Za-z0-9_]*)\x28\x29/, ':\1') while @mline =~ /:([A-Za-z][A-Za-z0-9_]*)\x28\x29/
     @mline.sub!(/;[\s]*$/, '')
     oneLineIfFix()
   end
